@@ -6806,7 +6806,7 @@ UniValue oraclessubscribe(const UniValue& params, bool fHelp)
 
 UniValue oraclessamples(const UniValue& params, bool fHelp)
 {
-    UniValue result(UniValue::VOBJ); uint256 txid,batontxid; int32_t num;
+    UniValue result(UniValue::VOBJ); uint256 txid; int32_t num; char *batonaddr;
     if ( fHelp || params.size() != 3 )
         throw runtime_error("oraclessamples oracletxid batonutxo num\n");
     if ( ensure_CCrequirements(EVAL_ORACLES) < 0 )
@@ -6814,9 +6814,9 @@ UniValue oraclessamples(const UniValue& params, bool fHelp)
     const CKeyStore& keystore = *pwalletMain;
     LOCK2(cs_main, pwalletMain->cs_wallet);
     txid = Parseuint256((char *)params[0].get_str().c_str());
-    batontxid = Parseuint256((char *)params[1].get_str().c_str());
+    batonaddr = (char *)params[1].get_str().c_str();
     num = atoi((char *)params[2].get_str().c_str());
-    return(OracleDataSamples(txid,batontxid,num));
+    return(OracleDataSamples(txid,batonaddr,num));
 }
 
 UniValue oraclesdata(const UniValue& params, bool fHelp)

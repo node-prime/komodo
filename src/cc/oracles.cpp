@@ -937,30 +937,35 @@ UniValue OracleFormat(uint8_t *data,int32_t datalen,char *format,int32_t formatl
     return(str);
 }
 
-UniValue OracleDataSamples(uint256 reforacletxid,uint256 batontxid,int32_t num)
+UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
 {
-    UniValue result(UniValue::VOBJ),b(UniValue::VARR); CTransaction tx,oracletx; uint256 hashBlock,btxid,oracletxid; 
-    CPubKey pk; std::string name,description,format; int32_t numvouts,n=0; std::vector<uint8_t> data; char str[67], *formatstr = 0;
+    UniValue result(UniValue::VOBJ),b(UniValue::VARR); CTransaction tx,oracletx; uint256 txid,hashBlock,btxid,oracletxid; 
+    CPubKey pk; std::string name,description,format; int32_t numvouts,n=0; std::vector<uint8_t> data; char *formatstr = 0;
+    std::vector<std::pair<CAddressIndexKey, CAmount> > addressIndex;
     
     result.push_back(Pair("result","success"));
     if ( GetTransaction(reforacletxid,oracletx,hashBlock,false) != 0 && (numvouts=oracletx.vout.size()) > 0 )
     {
         if ( DecodeOraclesCreateOpRet(oracletx.vout[numvouts-1].scriptPubKey,name,description,format) == 'C' )
         {
-            while ( GetTransaction(batontxid,tx,hashBlock,false) != 0 && (numvouts=tx.vout.size()) > 0 )
+            SetCCtxids(addressIndex,batonaddr,true);
+            for (std::vector<std::pair<CAddressIndexKey, CAmount> >::const_iterator it=addressIndex.end()-1; it!=addressIndex.begin(); it--)
             {
-                if ( DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                txid=it->first.txhash;
+                if (GetTransaction(txid,tx,hashBlock,false) != 0 && (numvouts=tx.vout.size()) > 0 )
                 {
-                    if ( (formatstr= (char *)format.c_str()) == 0 )
-                        formatstr = (char *)"";
-                    UniValue a(UniValue::VOBJ);
-                    a.push_back(Pair("data",OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size())));
-                    a.push_back(Pair("txid",uint256_str(str,batontxid)));
-                    b.push_back(a);
-                    batontxid = btxid;
-                    if ( ++n >= num && num != 0)
-                        break;
-                } else break;
+                    if ( DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                    {
+                        if ( (formatstr= (char *)format.c_str()) == 0 )
+                            formatstr = (char *)"";
+                        UniValue a(UniValue::VARR);
+                        a.push_back(OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size()));
+                        a.push_back(txid.GetHex());
+                        b.push_back(a);
+                        if ( ++n >= num && num != 0)
+                            break;
+                    }
+                }
             }
         }
     }
@@ -971,10 +976,12 @@ UniValue OracleDataSamples(uint256 reforacletxid,uint256 batontxid,int32_t num)
 UniValue OracleInfo(uint256 origtxid)
 {
     UniValue result(UniValue::VOBJ),a(UniValue::VARR);
-    std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs;
+    std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs; int32_t height;
     CMutableTransaction mtx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), komodo_nextheight());
-    CTransaction regtx,tx; std::string name,description,format; uint256 hashBlock,txid,oracletxid,batontxid; CPubKey pk;
+    CTransaction tx; std::string name,description,format; uint256 hashBlock,txid,oracletxid,batontxid; CPubKey pk;
     struct CCcontract_info *cp,C; int64_t datafee,funding; char str[67],markeraddr[64],numstr[64],batonaddr[64]; std::vector <uint8_t> data;
+    std::map<CPubKey,std::pair<uint256,int32_t>> publishers;
+
     cp = CCinit(&C,EVAL_ORACLES);
     CCtxidaddr(markeraddr,origtxid);
     if ( GetTransaction(origtxid,tx,hashBlock,false) == 0 )
@@ -998,26 +1005,36 @@ UniValue OracleInfo(uint256 origtxid)
             for (std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >::const_iterator it=unspentOutputs.begin(); it!=unspentOutputs.end(); it++)
             {
                 txid = it->first.txhash;
-                if ( GetTransaction(txid,regtx,hashBlock,false) != 0 )
+                height = (int32_t)it->second.blockHeight;
+                if ( GetTransaction(txid,tx,hashBlock,false) != 0 && tx.vout.size() > 0 &&
+                    DecodeOraclesOpRet(tx.vout[tx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R' && oracletxid == origtxid )
                 {
-                    if ( regtx.vout.size() > 0 && DecodeOraclesOpRet(regtx.vout[regtx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R' && oracletxid == origtxid )
+                    if (publishers.find(pk)==publishers.end() || height>publishers[pk].second)
                     {
-                        UniValue obj(UniValue::VOBJ);
-                        obj.push_back(Pair("publisher",pubkey33_str(str,(uint8_t *)pk.begin())));
-                        Getscriptaddress(batonaddr,regtx.vout[1].scriptPubKey);
-                        batontxid = OracleBatonUtxo(10000,cp,oracletxid,batonaddr,pk,data);
-                        obj.push_back(Pair("baton",batonaddr));
-                        obj.push_back(Pair("batontxid",uint256_str(str,batontxid)));
-                        funding = LifetimeOraclesFunds(cp,oracletxid,pk);
-                        sprintf(numstr,"%.8f",(double)funding/COIN);
-                        obj.push_back(Pair("lifetime",numstr));
-                        funding = AddOracleInputs(cp,mtx,oracletxid,pk,0,0);
-                        sprintf(numstr,"%.8f",(double)funding/COIN);
-                        obj.push_back(Pair("funds",numstr));
-                        sprintf(numstr,"%.8f",(double)datafee/COIN);
-                        obj.push_back(Pair("datafee",numstr));
-                        a.push_back(obj);
+                        publishers[pk].first=txid;
+                        publishers[pk].second=height;
                     }
+                }
+            }
+            for (std::map<CPubKey,std::pair<uint256,int32_t>>::iterator it = publishers.begin(); it != publishers.end(); ++it)
+            {
+                if ( GetTransaction(it->second.first,tx,hashBlock,false) != 0 && DecodeOraclesOpRet(tx.vout[tx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R')
+                {
+                    UniValue obj(UniValue::VOBJ);
+                    obj.push_back(Pair("publisher",pubkey33_str(str,(uint8_t *)pk.begin())));
+                    Getscriptaddress(batonaddr,tx.vout[1].scriptPubKey);
+                    batontxid = OracleBatonUtxo(10000,cp,oracletxid,batonaddr,pk,data);
+                    obj.push_back(Pair("baton",batonaddr));
+                    obj.push_back(Pair("batontxid",uint256_str(str,batontxid)));
+                    funding = LifetimeOraclesFunds(cp,oracletxid,pk);
+                    sprintf(numstr,"%.8f",(double)funding/COIN);
+                    obj.push_back(Pair("lifetime",numstr));
+                    funding = AddOracleInputs(cp,mtx,oracletxid,pk,0,0);
+                    sprintf(numstr,"%.8f",(double)funding/COIN);
+                    obj.push_back(Pair("funds",numstr));
+                    sprintf(numstr,"%.8f",(double)datafee/COIN);
+                    obj.push_back(Pair("datafee",numstr));
+                    a.push_back(obj);
                 }
             }
             result.push_back(Pair("registered",a));
