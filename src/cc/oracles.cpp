@@ -949,23 +949,26 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
         if ( DecodeOraclesCreateOpRet(oracletx.vout[numvouts-1].scriptPubKey,name,description,format) == 'C' )
         {
             SetCCtxids(addressIndex,batonaddr,true);
-            for (std::vector<std::pair<CAddressIndexKey, CAmount> >::const_iterator it=addressIndex.end()-1; it!=addressIndex.begin(); it--)
+            if (addressIndex.size()>0)
             {
-                txid=it->first.txhash;
-                vout = (int32_t)it->first.index;
-                nValue = (int64_t)it->second;
-                if (vout==1 && nValue==10000 && GetTransaction(txid,tx,hashBlock,false) != 0 && (numvouts=tx.vout.size()) > 0 )
+                for (std::vector<std::pair<CAddressIndexKey, CAmount> >::const_iterator it=addressIndex.end()-1; it!=addressIndex.begin(); it--)
                 {
-                    if ( DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                    txid=it->first.txhash;
+                    vout = (int32_t)it->first.index;
+                    nValue = (int64_t)it->second;
+                    if (vout==1 && nValue==10000 && GetTransaction(txid,tx,hashBlock,false) != 0 && (numvouts=tx.vout.size()) > 0 )
                     {
-                        if ( (formatstr= (char *)format.c_str()) == 0 )
-                            formatstr = (char *)"";
-                        UniValue a(UniValue::VARR);
-                        a.push_back(OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size()));
-                        a.push_back(txid.GetHex());
-                        b.push_back(a);
-                        if ( ++n >= num && num != 0)
-                            break;
+                        if ( DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                        {
+                            if ( (formatstr= (char *)format.c_str()) == 0 )
+                                formatstr = (char *)"";
+                            UniValue a(UniValue::VARR);
+                            a.push_back(OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size()));
+                            a.push_back(txid.GetHex());
+                            b.push_back(a);
+                            if ( ++n >= num && num != 0)
+                                break;
+                        }
                     }
                 }
             }
