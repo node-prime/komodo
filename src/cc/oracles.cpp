@@ -940,8 +940,8 @@ UniValue OracleFormat(uint8_t *data,int32_t datalen,char *format,int32_t formatl
 UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
 {
     UniValue result(UniValue::VOBJ),b(UniValue::VARR); CTransaction tx,oracletx; uint256 txid,hashBlock,btxid,oracletxid; 
-    CPubKey pk; std::string name,description,format; int32_t numvouts,n=0; std::vector<uint8_t> data; char *formatstr = 0;
-    std::vector<std::pair<CAddressIndexKey, CAmount> > addressIndex;
+    CPubKey pk; std::string name,description,format; int32_t numvouts,n=0,vout; std::vector<uint8_t> data; char *formatstr = 0;
+    std::vector<std::pair<CAddressIndexKey, CAmount> > addressIndex; int64_t nValue;
     
     result.push_back(Pair("result","success"));
     if ( GetTransaction(reforacletxid,oracletx,hashBlock,false) != 0 && (numvouts=oracletx.vout.size()) > 0 )
@@ -952,7 +952,9 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
             for (std::vector<std::pair<CAddressIndexKey, CAmount> >::const_iterator it=addressIndex.end()-1; it!=addressIndex.begin(); it--)
             {
                 txid=it->first.txhash;
-                if (GetTransaction(txid,tx,hashBlock,false) != 0 && (numvouts=tx.vout.size()) > 0 )
+                vout = (int32_t)it->first.index;
+                nValue = (int64_t)it->second;
+                if (vout==1 && nValue==10000 && GetTransaction(txid,tx,hashBlock,false) != 0 && (numvouts=tx.vout.size()) > 0 )
                 {
                     if ( DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
                     {
