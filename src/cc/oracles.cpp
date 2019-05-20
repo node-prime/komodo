@@ -962,9 +962,9 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
                         {
                             if ( (formatstr= (char *)format.c_str()) == 0 )
                                 formatstr = (char *)"";
-                            UniValue a(UniValue::VARR);
-                            a.push_back(OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size()));
-                            a.push_back(txid.GetHex());
+                            UniValue a(UniValue::VOBJ);
+                            a.push_back(Pair("data",OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size())));
+                            a.push_back(Pair("txid",txid.GetHex()));
                             b.push_back(a);
                             if ( ++n >= num && num != 0)
                                 break;
