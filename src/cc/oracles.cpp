@@ -92,10 +92,11 @@
  vout.n-1: opreturn with oracletxid, prevbatontxid and data in proper format
 
 */
+extern int32_t komodo_currentheight();
+#define PUBKEY_SPOOFING_FIX_HEIGHT 1000000
+#define CC_MARKER_VALUE 10000
 
 // start of consensus code
-
-
 CScript EncodeOraclesCreateOpRet(uint8_t funcid,std::string name,std::string description,std::string format)
 {
     CScript opret; uint8_t evalcode = EVAL_ORACLES;
@@ -635,7 +636,9 @@ bool OraclesDataValidate(struct CCcontract_info *cp,Eval* eval,const CTransactio
 
 bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &tx, uint32_t nIn)
 {
-    uint256 txid,oracletxid,batontxid; uint64_t txfee=10000; int32_t numvins,numvouts,preventCCvins,preventCCvouts; uint8_t *script; std::vector<uint8_t> vopret,data; CScript scriptPubKey; CPubKey publisher;
+    uint256 txid,oracletxid,batontxid; uint64_t txfee=10000; int32_t numvins,numvouts,preventCCvins,preventCCvouts; int64_t amount; uint256 hashblock;
+    uint8_t *script; std::vector<uint8_t> vopret,data; CScript scriptPubKey; CPubKey publisher,tmppk; char markeraddr[64],tmpaddress[64],vinaddress[64]; CTransaction tmptx;
+
     numvins = tx.vin.size();
     numvouts = tx.vout.size();
     preventCCvins = preventCCvouts = -1;
@@ -646,7 +649,7 @@ bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &t
         txid = tx.GetHash();
         GetOpReturnData(tx.vout[numvouts-1].scriptPubKey,vopret);
         if ( vopret.size() > 2 )
-        {
+        {   
             script = (uint8_t *)vopret.data();
             switch ( script[1] )
             {
@@ -663,6 +666,22 @@ bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &t
                     // vout.1: baton CC utxo
                     // vout.2: change, if any
                     // vout.n-1: opreturn with createtxid, pubkey and price per data point
+                    if (komodo_currentheight()>PUBKEY_SPOOFING_FIX_HEIGHT)
+                    {
+                        CCtxidaddr(markeraddr,oracletxid);
+                        if ((numvouts=tx.vout.size()) < 1 || DecodeOraclesOpRet(tx.vout[numvouts-1].scriptPubKey,oracletxid,tmppk,amount)!='C')
+                            return eval->Invalid("invalid oraclesregister OP_RETURN data!"); 
+                        else if ( IsCCInput(tx.vin[0].scriptSig) != 0 )
+                            return eval->Invalid("vin.0 is normal for oraclesregister!");
+                        else if ((*cp->ismyvin)(tx.vin[tx.vin.size()-1].scriptSig) == 0 || myGetTransaction(tx.vin[tx.vin.size()-1].prevout.hash,tmptx,hashblock)==0
+                                || tmptx.vout[tx.vin[tx.vin.size()-1].prevout.n].nValue!=CC_MARKER_VALUE || Getscriptaddress(vinaddress,tmptx.vout[tx.vin[tx.vin.size()-1].prevout.n].scriptPubKey)
+                                || GetCCaddress(cp,tmpaddress,tmppk) || strcmp(tmpaddress,vinaddress)!=0)
+                            return eval->Invalid("vin."+std::to_string(tx.vin.size()-1)+" is CC for oraclesregister or pubkey not same as vin pubkey, register must be done from owner of pubkey that registers to oracle!!");
+                        else if ( ConstrainVout(tx.vout[0],1,markeraddr,txfee)==0)
+                            return eval->Invalid("invalid marker for oraclesregister!");
+                        else if ( Getscriptaddress(tmpaddress,CScript() << ParseHex(HexStr(tmppk)) << OP_CHECKSIG) || ConstrainVout(tx.vout[2],0,tmpaddress,CC_MARKER_VALUE)==0)
+                            return eval->Invalid("pubkey in OP_RETURN and in vout.2 not matching, register must be done from owner of pubkey that registers to oracle!");
+                    }
                     return eval->Invalid("unexpected OraclesValidate for register");
                     break;
                 case 'S': // subscribe
@@ -762,6 +781,31 @@ int64_t LifetimeOraclesFunds(struct CCcontract_info *cp,uint256 oracletxid,CPubK
     return(total);
 }
 
+int64_t AddMyOraclesFunds(struct CCcontract_info *cp,CMutableTransaction &mtx,CPubKey pk)
+{
+    char coinaddr[64],funcid; int64_t nValue,totalinputs = 0,tmpnum; uint256 tmporacletxid,txid,hashBlock; int32_t numvouts,vout;
+    std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs; CTransaction vintx; CPubKey tmppk;
+
+    GetCCaddress(cp,coinaddr,pk);
+    SetCCunspents(unspentOutputs,coinaddr,true);
+    for (std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >::const_iterator it=unspentOutputs.begin(); it!=unspentOutputs.end(); it++)
+    {
+        txid = it->first.txhash;
+        vout = (int32_t)it->first.index;
+        nValue = it->second.satoshis;
+        if ( GetTransaction(txid,vintx,hashBlock,false) != 0 && (numvouts=vintx.vout.size()-1)>0)
+        {
+            if ((funcid=DecodeOraclesOpRet(vintx.vout[numvouts].scriptPubKey,tmporacletxid,tmppk,tmpnum))!=0 && funcid=='F' && tmppk==pk && tmpnum==nValue)
+            {
+                mtx.vin.push_back(CTxIn(txid,vout,CScript()));
+                totalinputs += nValue;
+                return (totalinputs);
+            }
+        } else fprintf(stderr,"couldnt find transaction\n");
+    }
+    return (0);
+}
+
 std::string OracleCreate(int64_t txfee,std::string name,std::string description,std::string format)
 {
     CMutableTransaction mtx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), komodo_nextheight());
@@ -802,10 +846,30 @@ std::string OracleCreate(int64_t txfee,std::string name,std::string description,
     return("");
 }
 
+std::string OracleFund(int64_t txfee,uint256 oracletxid)
+{
+    CMutableTransaction mtx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), komodo_nextheight());
+    CPubKey mypk,oraclespk; struct CCcontract_info *cp,C;
+
+    cp = CCinit(&C,EVAL_ORACLES);
+    if ( txfee == 0 )
+        txfee = 10000;
+    mypk = pubkey2pk(Mypubkey());
+    if (AddNormalinputs(mtx,mypk,txfee+CC_MARKER_VALUE,2))    
+    {
+        mtx.vout.push_back(MakeCC1vout(cp->evalcode,CC_MARKER_VALUE,mypk));
+        return(FinalizeCCTx(0,cp,mtx,mypk,txfee,EncodeOraclesOpRet('F',oracletxid,mypk,CC_MARKER_VALUE)));
+    }
+    CCerror = strprintf("error adding normal inputs");
+    fprintf(stderr,"%s\n", CCerror.c_str() );
+    return("");
+}
+
 std::string OracleRegister(int64_t txfee,uint256 oracletxid,int64_t datafee)
 {
     CMutableTransaction mtx = CreateNewContextualCMutableTransaction(Params().GetConsensus(), komodo_nextheight());
-    CPubKey mypk,markerpubkey,batonpk; struct CCcontract_info *cp,C; char markeraddr[64],batonaddr[64];
+    CPubKey mypk,markerpubkey,batonpk,oraclespk; struct CCcontract_info *cp,C; char markeraddr[64],batonaddr[64]; int64_t funds=0;
+
     cp = CCinit(&C,EVAL_ORACLES);
     if ( txfee == 0 )
         txfee = 10000;
@@ -816,12 +880,20 @@ std::string OracleRegister(int64_t txfee,uint256 oracletxid,int64_t datafee)
         return("");
     }
     mypk = pubkey2pk(Mypubkey());
+    oraclespk = GetUnspendable(cp,0);
     batonpk = OracleBatonPk(batonaddr,cp);
     markerpubkey = CCtxidaddr(markeraddr,oracletxid);
-    if ( AddNormalinputs(mtx,mypk,3*txfee,4) > 0 )
+    if (AddNormalinputs(mtx,mypk,3*txfee,4))    
     {
+        if (komodo_currentheight()>PUBKEY_SPOOFING_FIX_HEIGHT && AddMyOraclesFunds(cp,mtx,mypk)>0)
+        {
+            CCerror = strprintf("error adding inputs from oracles global CC address, pleas fund it first!");
+            fprintf(stderr,"%s\n", CCerror.c_str() );
+            return("");
+        }            
         mtx.vout.push_back(CTxOut(txfee,CScript() << ParseHex(HexStr(markerpubkey)) << OP_CHECKSIG));
         mtx.vout.push_back(MakeCC1vout(cp->evalcode,txfee,batonpk));
+        if (komodo_currentheight()>PUBKEY_SPOOFING_FIX_HEIGHT) mtx.vout.push_back(CTxOut(txfee,CScript() << ParseHex(HexStr(mypk)) << OP_CHECKSIG));
         return(FinalizeCCTx(0,cp,mtx,mypk,txfee,EncodeOraclesOpRet('R',oracletxid,mypk,datafee)));
     }
     CCerror = strprintf("error adding normal inputs");
@@ -970,6 +1042,22 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
                                 break;
                         }
                     }
+                }
+            }
+            BOOST_FOREACH(const CTxMemPoolEntry &e, mempool.mapTx)
+            {
+                const CTransaction &txmempool = e.GetTx();
+                const uint256 &hash = txmempool.GetHash();
+                if ( DecodeOraclesData(txmempool.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                {
+                    if ( (formatstr= (char *)format.c_str()) == 0 )
+                        formatstr = (char *)"";
+                    UniValue a(UniValue::VOBJ);
+                    a.push_back(Pair("data",OracleFormat((uint8_t *)data.data(),(int32_t)data.size(),formatstr,(int32_t)format.size())));
+                    a.push_back(Pair("txid",txmempool.GetHash().GetHex()));
+                    b.push_back(a);
+                    if ( ++n >= num && num != 0)
+                        break;
                 }
             }
         }
