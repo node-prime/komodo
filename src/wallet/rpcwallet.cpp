@@ -6760,6 +6760,19 @@ UniValue oraclesinfo(const UniValue& params, bool fHelp)
     return(OracleInfo(txid));
 }
 
+UniValue oraclesfund(const UniValue& params, bool fHelp)
+{
+    uint256 txid;
+    if ( fHelp || params.size() != 1 )
+        throw runtime_error("oraclesinfo oracletxid\n");
+    if ( ensure_CCrequirements(EVAL_ORACLES) < 0 )
+        throw runtime_error("to use CC contracts, you need to launch daemon with valid -pubkey= for an address in your wallet\n");
+    const CKeyStore& keystore = *pwalletMain;
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    txid = Parseuint256((char *)params[0].get_str().c_str());
+    return(OracleFund(0,txid));
+}
+
 UniValue oraclesregister(const UniValue& params, bool fHelp)
 {
     UniValue result(UniValue::VOBJ); uint256 txid; int64_t datafee; std::string hex;

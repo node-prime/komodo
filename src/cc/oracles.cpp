@@ -797,7 +797,7 @@ int64_t LifetimeOraclesFunds(struct CCcontract_info *cp,uint256 oracletxid,CPubK
 
 int64_t AddMyOraclesFunds(struct CCcontract_info *cp,CMutableTransaction &mtx,CPubKey pk)
 {
-    char coinaddr[64],funcid; int64_t nValue,totalinputs = 0,tmpnum; uint256 tmporacletxid,txid,hashBlock; int32_t numvouts,vout;
+    char coinaddr[64],str[65],funcid; int64_t nValue,tmpamount; uint256 tmporacletxid,txid,hashBlock; int32_t numvouts,vout;
     std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs; CTransaction vintx; CPubKey tmppk;
 
     GetCCaddress(cp,coinaddr,pk);
@@ -807,13 +807,13 @@ int64_t AddMyOraclesFunds(struct CCcontract_info *cp,CMutableTransaction &mtx,CP
         txid = it->first.txhash;
         vout = (int32_t)it->first.index;
         nValue = it->second.satoshis;
-        if ( GetTransaction(txid,vintx,hashBlock,false) != 0 && (numvouts=vintx.vout.size()-1)>0)
+        fprintf(stderr,"%s %ld\n",txid.GetHex().c_str(),nValue);
+        if ( GetTransaction(txid,vintx,hashBlock,false) != 0 && (numvouts=vintx.vout.size())>0)
         {
-            if ((funcid=DecodeOraclesOpRet(vintx.vout[numvouts].scriptPubKey,tmporacletxid,tmppk,tmpnum))!=0 && funcid=='F' && tmppk==pk && tmpnum==nValue)
+            if ((funcid=DecodeOraclesOpRet(vintx.vout[numvouts-1].scriptPubKey,tmporacletxid,tmppk,tmpamount))!=0 && fprintf(stderr,"%c %s %s %s %ld %ld\n",funcid,tmporacletxid.GetHex().c_str(),pubkey33_str(str,(uint8_t *)tmppk.begin()),pubkey33_str(str,(uint8_t *)pk.begin()),tmpamount,nValue) && funcid=='F' && tmppk==pk && tmpamount==nValue)
             {
                 mtx.vin.push_back(CTxIn(txid,vout,CScript()));
-                totalinputs += nValue;
-                return (totalinputs);
+                return (nValue);
             }
         } else fprintf(stderr,"couldnt find transaction\n");
     }
@@ -899,9 +899,9 @@ std::string OracleRegister(int64_t txfee,uint256 oracletxid,int64_t datafee)
     markerpubkey = CCtxidaddr(markeraddr,oracletxid);
     if (AddNormalinputs(mtx,mypk,3*txfee,4))    
     {
-        if (GetLatestTimestamp(komodo_currentheight())>PUBKEY_SPOOFING_FIX_ACTIVATION && AddMyOraclesFunds(cp,mtx,mypk)>0)
+        if (GetLatestTimestamp(komodo_currentheight())>PUBKEY_SPOOFING_FIX_ACTIVATION && AddMyOraclesFunds(cp,mtx,mypk)!=CC_MARKER_VALUE)
         {
-            CCerror = strprintf("error adding inputs from oracles global CC address, pleas fund it first!");
+            CCerror = strprintf("error adding inputs from your Oracles CC address, please fund it first with oraclesfund rpc!");
             fprintf(stderr,"%s\n", CCerror.c_str() );
             return("");
         }            
