@@ -1072,7 +1072,7 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
             {
                 const CTransaction &txmempool = e.GetTx();
                 const uint256 &hash = txmempool.GetHash();
-                if ( DecodeOraclesData(txmempool.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                if ((numvouts=txmempool.vout.size())>0 && DecodeOraclesData(txmempool.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
                 {
                     if ( (formatstr= (char *)format.c_str()) == 0 )
                         formatstr = (char *)"";
