@@ -6762,7 +6762,7 @@ UniValue oraclesinfo(const UniValue& params, bool fHelp)
 
 UniValue oraclesfund(const UniValue& params, bool fHelp)
 {
-    uint256 txid;
+    UniValue result(UniValue::VOBJ); uint256 txid; std::string hex;
     if ( fHelp || params.size() != 1 )
         throw runtime_error("oraclesfund oracletxid\n");
     if ( ensure_CCrequirements(EVAL_ORACLES) < 0 )
@@ -6770,7 +6770,14 @@ UniValue oraclesfund(const UniValue& params, bool fHelp)
     const CKeyStore& keystore = *pwalletMain;
     LOCK2(cs_main, pwalletMain->cs_wallet);
     txid = Parseuint256((char *)params[0].get_str().c_str());
-    return(OracleFund(0,txid));
+    hex = OracleFund(0,txid);
+    RETURN_IF_ERROR(CCerror);
+    if ( hex.size() > 0 )
+    {
+        result.push_back(Pair("result", "success"));
+        result.push_back(Pair("hex", hex));
+    } else ERR_RESULT("couldnt fund with oracle txid");
+    return(result);
 }
 
 UniValue oraclesregister(const UniValue& params, bool fHelp)
